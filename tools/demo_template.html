@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Finite-automata validators: live demo</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2430; --mute:#667085; --line:#e3e6ec; --ok:#12805c; --okbg:#e5f6ee; --bad:#b42318; --badbg:#fdeceb; --hl:#ffc247; --bar:#1f3a5f; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:var(--bar); color:#fff; padding:14px 22px; }
+  header h1 { margin:0; font-size:18px; } header p { margin:2px 0 0; font-size:12.5px; opacity:.8; }
+  main { display:grid; grid-template-columns:320px 1fr; gap:16px; padding:16px; max-width:1300px; margin:auto; }
+  @media (max-width:860px){ main{ grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  label { display:block; font-size:12px; font-weight:600; color:var(--mute); margin:10px 0 4px; text-transform:uppercase; letter-spacing:.03em; }
+  select, input { width:100%; padding:8px 10px; font:inherit; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  input { font-family:ui-monospace, Menlo, Consolas, monospace; }
+  #verdict { margin-top:12px; padding:10px; border-radius:8px; font-weight:600; text-align:center; }
+  .ok { background:var(--okbg); color:var(--ok); } .bad { background:var(--badbg); color:var(--bad); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { font:12px ui-monospace, Menlo, Consolas, monospace; padding:3px 8px; border-radius:99px; border:1px solid; cursor:pointer; background:#fff; }
+  .chip.a { color:var(--ok); border-color:#b6e3d1; } .chip.r { color:var(--bad); border-color:#f3c1bd; }
+  .small { font-size:12.5px; color:var(--mute); }
+  #diagram svg { max-width:100%; height:auto; }
+  table { width:100%; border-collapse:collapse; font:12.5px ui-monospace, Menlo, Consolas, monospace; margin-top:10px; }
+  th, td { text-align:left; padding:3px 8px; border-bottom:1px solid var(--line); } th { color:var(--mute); font-weight:600; }
+  #tracewrap { max-height:320px; overflow:auto; }
+  .meter { height:10px; background:var(--line); border-radius:6px; position:relative; margin:6px 0 2px; }
+  .meter i { position:absolute; top:0; bottom:0; background:#cfe9dc; border-radius:6px; }
+  .meter b { position:absolute; top:-3px; width:4px; height:16px; background:var(--bar); border-radius:2px; }
+  details { margin-top:14px; } summary { cursor:pointer; font-weight:600; }
+  .gallery svg { max-width:100%; height:auto; margin:8px 0; }
+</style>
+</head>
+<body>
+<header><h1>Finite-automata validators: live demo</h1>
+<p>21CSC301T Formal Language and Automata &middot; CLA-2 Task 2 &middot; type a string and watch the automaton move</p></header>
+<main>
+  <section class="card">
+    <label for="app">Application</label>
+    <select id="app"></select>
+    <label for="txt">Input string</label>
+    <input id="txt" autocomplete="off" spellcheck="false" placeholder="type here">
+    <div id="verdict" class="bad">type something</div>
+    <div id="meter" style="display:none"></div>
+    <label>Examples (click to try)</label>
+    <div id="examples" class="chips"></div>
+    <p class="small" id="lang"></p>
+    <p class="small" id="alpha"></p>
+  </section>
+  <section class="card">
+    <div id="diagram"></div>
+    <p class="small" id="trapnote">The trap state qD is not drawn: any missing move goes there and the string is rejected.</p>
+    <div id="tracewrap"><table id="trace"></table></div>
+    <details><summary>Limitations of this automaton</summary><ul id="limits"></ul></details>
+    <details class="gallery"><summary>All diagrams</summary><div id="gallery"></div></details>
+  </section>
+</main>
+<script>
+const DATA = __DATA__;
+const SVGS = __SVGS__;
+const PW = {min:8, max:12, special:"@#$%&*!"};
+const el = id => document.getElementById(id);
+let app = "password";
+
+function classify(app, ch) {
+  if (app === "password") {
+    if (/[A-Z]/.test(ch)) return "U"; if (/[a-z]/.test(ch)) return "L"; if (/[0-9]/.test(ch)) return "D";
+    return PW.special.includes(ch) ? "S" : "O";
+  }
+  if (app === "mobile") {
+    if (ch === "+") return "+"; if ("019".includes(ch) && ch.length) return ch;
+    if ("2345".includes(ch)) return "2-5"; if ("678".includes(ch)) return "6-8"; return "O";
+  }
+  if ("01".includes(ch)) return "0-1"; if (ch === "2") return "2"; if (ch === "3") return "3";
+  if ("45".includes(ch)) return "4-5"; if ("6789".includes(ch)) return "6-9"; if (ch === ":") return ":"; return "O";
+}
+function covName(mask) { return ["U","L","D","S"].filter((_, i) => mask >> i & 1).join("") || "-"; }
+
+function run(text) {
+  const rows = []; let ok, final;
+  if (app === "password") {
+    let mask = 0, bad = false; const bit = {U:1, L:2, D:4, S:8};
+    [...text].forEach((ch, i) => {
+      const sym = classify(app, ch);
+      if (sym === "O") bad = true; else mask |= bit[sym];
+      rows.push([i + 1, ch, sym, covName(mask), `length ${i + 1}` + (sym === "O" ? ", forbidden character" : "")]);
+    });
+    final = covName(mask);
+    ok = !bad && mask === 15 && text.length >= PW.min && text.length <= PW.max;
+    return {ok, final, rows, mask, bad};
+  }
+  const d = DATA[app].dfa; let s = d.start;
+  [...text].forEach((ch, i) => {
+    const sym = classify(app, ch);
+    const t = s !== "qD" && d.delta[s] && d.delta[s][sym] ? d.delta[s][sym] : "qD";
+    rows.push([i + 1, ch, sym, t, `from ${s}`]); s = t;
+  });
+  return {ok: d.accepts.includes(s), final: s, rows};
+}
+
+function highlight(state) {
+  el("diagram").querySelectorAll("g.node").forEach(g => {
+    const shape = g.querySelector("ellipse, polygon");
+    if (!shape) return;
+    if (shape.dataset.fill === undefined) shape.dataset.fill = shape.getAttribute("fill") || "none";
+    shape.setAttribute("fill", g.querySelector("title").textContent === state ? "#ffc247" : shape.dataset.fill);
+  });
+}
+
+function update() {
+  const text = el("txt").value, r = run(text);
+  const v = el("verdict");
+  v.className = r.ok ? "ok" : "bad";
+  v.textContent = text === "" ? "empty string: REJECTED" : (r.ok ? "ACCEPTED" : "REJECTED") + " (final state " + r.final + ")";
+  highlight(r.final);
+  const t = el("trace");
+  t.innerHTML = "<tr><th>#</th><th>char</th><th>class</th><th>state</th><th>note</th></tr>" +
+    r.rows.map(x => `<tr><td>${x[0]}</td><td>${x[1] === " " ? "&nbsp;" : x[1].replace("<","&lt;")}</td><td>${x[2]}</td><td>${x[3]}</td><td>${x[4]}</td></tr>`).join("");
+  const m = el("meter");
+  if (app === "password") {
+    const n = [...text].length, scale = 16;
+    m.style.display = "block";
+    m.innerHTML = `<label>Length ${n} (allowed ${PW.min}-${PW.max})</label><div class="meter"><i style="left:${PW.min/scale*100}%;width:${(PW.max-PW.min+1)/scale*100}%"></i><b style="left:${Math.min(n,scale)/scale*100}%"></b></div>`;
+  } else m.style.display = "none";
+}
+
+function setApp(k) {
+  app = k; const d = DATA[k];
+  el("lang").textContent = "Language: " + d.language;
+  el("alpha").textContent = "Alphabet: " + d.alphabet;
+  el("diagram").innerHTML = SVGS[d.diagram];
+  el("examples").innerHTML = "";
+  d.accepted.forEach(w => chip(w, "a")); d.rejected.forEach(w => chip(w, "r"));
+  el("limits").innerHTML = d.limits.map(x => `<li>${x}</li>`).join("");
+  el("trapnote").style.display = k === "password" ? "none" : "block";
+  update();
+}
+function chip(w, cls) {
+  const c = document.createElement("span"); c.className = "chip " + cls; c.textContent = w;
+  c.onclick = () => { el("txt").value = w; update(); }; el("examples").appendChild(c);
+}
+Object.keys(DATA).forEach(k => { const o = document.createElement("option"); o.value = k; o.textContent = DATA[k].title; el("app").appendChild(o); });
+el("app").onchange = e => { el("txt").value = ""; setApp(e.target.value); };
+el("txt").oninput = update;
+el("gallery").innerHTML = Object.keys(SVGS).sort().map(k => `<div>${SVGS[k]}</div>`).join("");
+setApp("password");
+</script>
+</body>
+</html>
